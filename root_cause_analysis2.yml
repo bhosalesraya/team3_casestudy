@@ -1,0 +1,84 @@
+---
+- name: Root Cause Analysis - Check CPU and Memory Utilization
+  hosts: _High_Utilization_EC2
+  become: yes
+  tasks:
+    - name: Gather CPU and Memory utilization statistics
+      shell: "top -bn1 | grep 'Cpu(s)'"
+      register: system_stats
+      changed_when: false
+
+    - name: Display CPU and Memory usage
+      debug:
+        msg: "{{ system_stats.stdout_lines }}"
+
+    - name: Debug the output of system_stats
+      debug:
+        var: system_stats.stdout
+
+    - name: Extract CPU idle percentage
+      set_fact:
+        cpu_idle: "{{ system_stats.stdout | regex_search('Cpu\\(s\\):.*?([0-9.]+)% id', '\\1') | float }}"
+
+    - name: Check if CPU usage exceeds threshold (80%)
+      assert:
+        that:
+          - cpu_idle | float  < 20
+        fail_msg: "CPU utilization is too high!"
+        success_msg: "CPU utilization is within limits."
+
+    - name: Get memory details using free command
+      command: free -m
+      register: free_output
+
+    - name: Extract total memory
+      set_fact:
+        total_memory: "{{ free_output.stdout_lines[1].split()[1] | int }}"
+
+    - name: Extract used memory
+      set_fact:
+        used_memory: "{{ free_output.stdout_lines[1].split()[2] | int }}"
+
+    - name: Extract free memory
+      set_fact:
+        free_memory: "{{ free_output.stdout_lines[1].split()[3] | int }}"
+
+    - name: Extract available memory
+      set_fact:
+        available_memory: "{{ free_output.stdout_lines[1].split()[6] | int }}"
+
+    - name: Debug total_memory and used_memory
+      debug:
+        msg: "Total memory: {{ total_memory }}, Used memory: {{ used_memory }}"
+
+    - name: Calculate memory usage percentage
+      set_fact:
+        memory_usage_percentage: "{{ (used_memory | int) / (total_memory | int) * 100 }}"
+
+    - name: Check if Memory usage exceeds threshold (80%)
+      assert:
+        that:
+          - memory_usage_percentage | float < 80
+        fail_msg: "Memory utilization is too high!"
+        success_msg: "Memory usage is within limits."
+
+    - name: Investigate running processes if CPU exceeds threshold
+      shell: "ps aux --sort=-%cpu | head -n 10"
+      register: top_cpu_processes
+      when: "'Cpu(s):  %idle' not in system_stats.stdout"
+
+    - name: Investigate running processes if memory exceeds threshold
+      shell: "ps aux --sort=-%mem | head -n 10"
+      register: top_mem_processes
+      when: "'Mem' not in system_stats.stdout"
+
+    - name: Display top CPU consuming processes
+      debug:
+        msg: "{{ top_cpu_processes.stdout_lines }}"
+      when: "'Cpu(s):  %idle' not in system_stats.stdout"
+
+    - name: Display top Memory consuming processes
+      debug:
+        msg: "{{ top_mem_processes.stdout_lines }}"
+      when: "'Mem' not in system_stats.stdout"
+

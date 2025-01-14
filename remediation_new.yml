@@ -1,0 +1,25 @@
+---
+- name: Clean up large files in /tmp
+  hosts: _High_Utilization_EC2
+  gather_facts: yes
+
+  tasks:
+    - name: Find large files in /tmp directory (larger than 100MB)
+      ansible.builtin.find:
+        paths: /tmp
+        size: 100M
+      register: large_files
+
+    - name: Remove large files from /tmp
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ large_files.files }}"
+      when: large_files.matched > 0
+
+    - name: Confirm cleanup of large files
+      debug:
+        msg: "Cleaned up file: {{ item.path }}"
+      loop: "{{ large_files.files }}"
+      when: large_files.matched > 0
+
